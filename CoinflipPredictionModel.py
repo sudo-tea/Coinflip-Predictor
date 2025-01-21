@@ -1,131 +1,3 @@
-'''
-
-import numpy as np
-from sklearn.preprocessing import OneHotEncoder
-
-class DicePredictorNN:
-    def __init__(self, window_size=3, hidden_size=32):
-        self.window_size = window_size
-        self.num_classes = 6
-        
-        # Initialize parameters
-        self.W1 = np.random.randn(window_size, hidden_size) * 0.01
-        self.b1 = np.zeros((1, hidden_size))
-        self.W2 = np.random.randn(hidden_size, self.num_classes) * 0.01
-        self.b2 = np.zeros((1, self.num_classes))
-        
-        # One-hot encoder for output
-        self.encoder = OneHotEncoder(sparse_output=False, categories=[range(1,7)])
-
-    def softmax(self, x):
-        # Numerically stable softmax
-        exps = np.exp(x - np.max(x, axis=1, keepdims=True))
-        return exps / np.sum(exps, axis=1, keepdims=True)
-
-    def sigmoid(self, x):
-        return 1 / (1 + np.exp(-x))
-
-    def sigmoid_derivative(self, x):
-        return x * (1 - x)
-
-    def forward(self, X):
-        # Forward propagation
-        self.z1 = np.dot(X, self.W1) + self.b1
-        self.a1 = self.sigmoid(self.z1)
-        self.z2 = np.dot(self.a1, self.W2) + self.b2
-        self.a2 = self.softmax(self.z2)
-        return self.a2
-
-    def backward(self, X, y, output, learning_rate=0.01):
-        # Backward propagation
-        m = X.shape[0]
-        
-        # Calculate gradients
-        dZ2 = output - y
-        dW2 = (1/m) * np.dot(self.a1.T, dZ2)
-        db2 = (1/m) * np.sum(dZ2, axis=0, keepdims=True)
-        
-        dA1 = np.dot(dZ2, self.W2.T)
-        dZ1 = dA1 * self.sigmoid_derivative(self.a1)
-        dW1 = (1/m) * np.dot(X.T, dZ1)
-        db1 = (1/m) * np.sum(dZ1, axis=0)
-
-        # Update parameters
-        self.W2 -= learning_rate * dW2
-        self.b2 -= learning_rate * db2
-        self.W1 -= learning_rate * dW1
-        self.b1 -= learning_rate * db1
-
-    def train(self, sequences, epochs=5000, learning_rate=0.1, verbose=True):
-        # Prepare training data
-        X, y = self._prepare_data(sequences)
-        
-        for epoch in range(epochs):
-            # Forward pass
-            output = self.forward(X)
-            
-            # Compute loss (cross-entropy)
-            loss = -np.mean(y * np.log(output + 1e-8))
-            
-            # Backward pass and optimize
-            self.backward(X, y, output, learning_rate)
-            
-            if verbose and epoch % 500 == 0:
-                print(f"Epoch {epoch}, Loss: {loss:.4f}")
-
-    def _prepare_data(self, sequences):
-        X, y = [], []
-        for seq in sequences:
-            for i in range(len(seq) - self.window_size):
-                # Normalize input to [0, 1] range
-                window = [n/6 for n in seq[i:i+self.window_size]]
-                next_num = seq[i+self.window_size]
-                X.append(window)
-                y.append(next_num)
-        
-        # Convert to numpy arrays and one-hot encode labels
-        X = np.array(X)
-        y = self.encoder.fit_transform(np.array(y).reshape(-1, 1))
-        return X, y
-
-    def predict_next(self, previous_numbers):
-        if len(previous_numbers) != self.window_size:
-            raise ValueError(f"Need exactly {self.window_size} previous numbers")
-            
-        # Normalize input and predict
-        X = np.array([n/6 for n in previous_numbers]).reshape(1, -1)
-        probs = self.forward(X)[0]
-        predicted = np.argmax(probs) + 1  # Convert from 0-based index to 1-6
-        return predicted
-
-# Example usage
-if __name__ == "__main__":
-    # Generate training data (replace with real dice rolls)
-    sequences = [
-        [3, 1, 4, 2, 5, 6, 2, 3],
-        [2, 5, 1, 3, 4, 6, 1, 2],
-        [6, 2, 4, 3, 1, 5, 3, 4],
-    ]
-
-    # Create and train network
-    nn = DicePredictorNN(window_size=3, hidden_size=32)
-    nn.train(sequences, epochs=5000, learning_rate=0.1)
-
-    # Test predictions
-    test_cases = [
-        [3, 1, 4],  # Next was 2 in training
-        [2, 5, 1],  # Next was 3 in training
-        [6, 2, 4],  # Next was 3 in training
-        [1, 2, 3]   # New combination
-    ]
-
-    print("\nPredictions:")
-    for case in test_cases:
-        prediction = nn.predict_next(case)
-        print(f"After {case} -> predict: {prediction}")
-
-'''
-
 import numpy as np
 import tkinter as tk
 from collections import deque
@@ -233,9 +105,19 @@ class CoinFlipGUI:
         # Input buttons
         self.btn_frame = tk.Frame(master)
         self.btn_frame.pack(pady=10)
-        self.btn_heads = tk.Button(self.btn_frame, text="Add Heads (H)", command=self.add_heads, bg="lightgreen")
+        self.btn_heads = tk.Button(
+            self.btn_frame, 
+            text="Add Heads (H)", 
+            command=lambda: [self.add_heads(), self.train_model()], 
+            bg="lightgreen"
+        )
         self.btn_heads.pack(side=tk.LEFT, padx=5)
-        self.btn_tails = tk.Button(self.btn_frame, text="Add Tails (T)", command=self.add_tails, bg="salmon")
+        self.btn_tails = tk.Button(
+            self.btn_frame, 
+            text="Add Tails (T)", 
+            command=lambda: [self.add_tails(), self.train_model()], 
+            bg="salmon"
+        )
         self.btn_tails.pack(side=tk.LEFT, padx=5)
         
         # Prediction display
@@ -251,8 +133,6 @@ class CoinFlipGUI:
         # Control buttons
         self.control_frame = tk.Frame(master)
         self.control_frame.pack(pady=10)
-        self.train_btn = tk.Button(self.control_frame, text="Train Model", command=self.train_model, bg="lightblue")
-        self.train_btn.pack(side=tk.LEFT, padx=5)
         self.clear_btn = tk.Button(self.control_frame, text="Clear History", command=self.clear_history, bg="lightgrey")
         self.clear_btn.pack(side=tk.LEFT, padx=5)
 
@@ -284,8 +164,6 @@ class CoinFlipGUI:
     def train_model(self):
         self.predictor.train_model()
         self.update_display()
-        self.train_btn.config(text="Model Trained!", bg="lightgreen")
-        self.master.after(2000, lambda: self.train_btn.config(text="Train Model", bg="lightblue"))
     
     def clear_history(self):
         self.predictor.history.clear()
